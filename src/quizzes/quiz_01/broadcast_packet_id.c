@@ -1,0 +1,70 @@
+#include "contiki.h"
+#include "net/rime/rime.h"
+#include "random.h"
+#include "dev/leds.h"
+#include <stdio.h>
+#include <string.h>
+
+/* Process to handle broadcasting packets with an increasing packet ID */
+PROCESS(example_broadcast_process, "Broadcast Example with Packet ID");
+AUTOSTART_PROCESSES(&example_broadcast_process);
+
+/* Callback function executed when a broadcast packet is received */
+static void
+broadcast_recv(struct broadcast_conn *c, const linkaddr_t *from)
+{
+  char *msg = (char *)packetbuf_dataptr();  
+  int recv_id = -1;
+
+  /* Extract packet_id from the received message */
+    char *underscore = strchr(msg, '_');
+    if (underscore != NULL) {
+      recv_id = atoi(underscore + 1);
+    }
+
+  /* Print the information about the received packet */
+  printf("Received packet ID = %d from node %d.%d payload = \"%s\"\n",
+         recv_id,
+         from->u8[0], from->u8[1],
+         msg);
+}
+
+/* Structure holding the broadcast callback */
+static const struct broadcast_callbacks broadcast_call = {broadcast_recv};
+/* Declare the broadcast connection variable */
+static struct broadcast_conn broadcast;
+
+PROCESS_THREAD(example_broadcast_process, ev, data)
+{
+  static struct etimer et;       
+  static char msg[32];          
+  static int packet_id = 1;      
+
+  PROCESS_EXITHANDLER(broadcast_close(&broadcast);) 
+
+  PROCESS_BEGIN();
+
+  /* Open broadcast connection on channel 129 and set the receive callback */
+  broadcast_open(&broadcast, 129, &broadcast_call);
+
+  while(1) {
+    /* Set the timer to 10 seconds */
+    etimer_set(&et, CLOCK_SECOND * 10);
+    PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&et));
+
+    /* Create the payload with the current packet ID */
+    snprintf(msg, sizeof(msg), "hello packet_%d", packet_id++);
+
+    /* Copy payload to the packet buffer and send it via broadcast */
+    packetbuf_copyfrom(msg, strlen(msg) + 1);
+    broadcast_send(&broadcast);
+
+    /* Print log about the sent packet */
+    printf("Node %d.%d sent: \"%s\"\n",
+           linkaddr_node_addr.u8[0],
+           linkaddr_node_addr.u8[1],
+           msg);
+  }
+
+  PROCESS_END();
+}
